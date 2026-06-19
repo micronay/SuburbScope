@@ -193,11 +193,13 @@
     <div class="tbtns">
       <button id="sampleBtn">SAMPLE</button>
       <button id="backupBtn">BACKUP</button>
+      <button id="cloudBtn">CLOUD</button>
       <button id="restoreBtn">RESTORE</button>
+      <button id="installBtn" class="hide">INSTALL</button>
       <input type="file" id="restoreInput" accept="application/json,.json" class="hide">
     </div>
   </div>
-  <div class="storebar"><span class="dot" id="storeDot"></span><span id="storeBadge">Loading…</span></div>
+  <div class="storebar"><span class="dot" id="storeDot"></span><span id="storeBadge">Loading…</span><span id="cloudBadge"></span></div>
 
   <!-- ===== SUBURBS ===== -->
   <section id="tab-suburbs" class="pad0">
@@ -338,12 +340,39 @@ async function loadAll(){
   const b=await Store.get(KI);if(b){try{inspections=JSON.parse(b);}catch(e){}}
   suburbs.forEach(s=>(s.data||[]).forEach(d=>{if(!d._id)d._id=uid();}));
   if(suburbs.length&&!activeSub)activeSub=suburbs[0].id;
-  badge();renderSub();renderInsp();
+  badge();cloudBadge(cloudUrl?"idle":"");renderSub();renderInsp();
+  if(cloudUrl){const o=await cloudPull();
+    if(o&&(+o.ts||0)>localTs()){suburbs=o.suburbs||[];suburbs.forEach(x=>(x.data||[]).forEach(d=>{if(!d._id)d._id=uid();}));inspections=o.inspections||[];activeSub=suburbs[0]?suburbs[0].id:null;win={from:0,to:0};setTs(o.ts||Date.now());try{localStorage.setItem(KS,JSON.stringify(suburbs));localStorage.setItem(KI,JSON.stringify(inspections));}catch(e){}renderSub();renderInsp();}}
 }
-async function saveSub(){const ok=await Store.set(KS,JSON.stringify(suburbs));$("noteS").textContent=ok===false?"⚠ Save failed — tap BACKUP.":"Saved · "+now();badge();}
-async function saveInsp(){const ok=await Store.set(KI,JSON.stringify(inspections));$("noteI").textContent=ok===false?"⚠ Save failed — tap BACKUP.":"Saved · "+now();badge();}
+async function saveSub(){const ok=await Store.set(KS,JSON.stringify(suburbs));$("noteS").textContent=ok===false?"⚠ Save failed — tap BACKUP.":"Saved · "+now();badge();setTs(Date.now());cloudPushSoon();}
+async function saveInsp(){const ok=await Store.set(KI,JSON.stringify(inspections));$("noteI").textContent=ok===false?"⚠ Save failed — tap BACKUP.":"Saved · "+now();badge();setTs(Date.now());cloudPushSoon();}
 const now=()=>new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"});
 function badge(){$("storeBadge").textContent=storageMode==="local"?"Saved on this device":storageMode==="cloud"?"Saved in the Claude app":"Not yet saved";$("storeDot").classList.toggle("warn",storageMode==="memory");}
+
+/* ---- Google Drive sync via your Apps Script web app (same idea as FitTrack) ---- */
+let cloudUrl=localStorage.getItem("ss_cloud_url")||"";
+let pushTimer=null;
+function localTs(){return +localStorage.getItem("ss_ts")||0;}
+function setTs(t){try{localStorage.setItem("ss_ts",String(t));}catch(e){}}
+function cloudBadge(state){const el=$("cloudBadge");if(!el)return;
+  if(!cloudUrl){el.textContent="";return;}
+  el.textContent=({syncing:" · Drive: syncing…",synced:" · Drive: synced ✓",error:" · Drive: offline",idle:" · Drive: on"})[state]||" · Drive: on";}
+async function cloudPull(){if(!cloudUrl)return null;cloudBadge("syncing");
+  try{const r=await fetch(cloudUrl,{method:"GET"});const o=JSON.parse(await r.text());cloudBadge("synced");return (o&&(o.suburbs||o.inspections))?o:null;}
+  catch(e){cloudBadge("error");return null;}}
+function cloudPushSoon(){if(!cloudUrl)return;clearTimeout(pushTimer);pushTimer=setTimeout(cloudPush,1200);}
+async function cloudPush(){if(!cloudUrl)return;cloudBadge("syncing");const ts=Date.now();setTs(ts);
+  try{await fetch(cloudUrl,{method:"POST",body:JSON.stringify({_app:"SuburbScope",ts,suburbs,inspections})});cloudBadge("synced");}
+  catch(e){cloudBadge("error");}}
+async function setCloud(){
+  const u=prompt("Paste your Google Apps Script Web App URL (ends in /exec).\nLeave blank to turn Drive sync off.",cloudUrl);
+  if(u===null)return;
+  cloudUrl=u.trim();try{localStorage.setItem("ss_cloud_url",cloudUrl);}catch(e){}
+  if(!cloudUrl){cloudBadge("");alert("Drive sync turned off. Data still saves on this device.");return;}
+  const o=await cloudPull();
+  if(o){suburbs=o.suburbs||[];suburbs.forEach(s=>(s.data||[]).forEach(d=>{if(!d._id)d._id=uid();}));inspections=o.inspections||[];activeSub=suburbs[0]?suburbs[0].id:null;win={from:0,to:0};setTs(o.ts||Date.now());await saveSub();await saveInsp();renderSub();renderInsp();alert("Connected. Pulled your data from Drive.");}
+  else{await cloudPush();alert("Connected. Your current data has been pushed to Drive.");}
+}
 
 /* tabs */
 document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>{
@@ -565,6 +594,17 @@ $("sampleBtn").onclick=async()=>{if(suburbs.some(s=>s.name==="Carlton")){alert("
   suburbs.push(s);activeSub=s.id;win={from:0,to:0};await saveSub();
   if(!inspections.length){inspections.push({id:"demo1",suburb:"Carlton — 12 Faraday St",status:"shortlist",age:"2016",cage:"yes",bed:"2",bath:"1",park:"1",cost:"655000",loan:"520000",strata:"920",other:"180",comments:"North-facing, good light. Check sinking fund at AGM."});await saveInsp();}
   renderSub();renderInsp();};
+
+$("cloudBtn").onclick=setCloud;
+
+/* service worker → makes Chrome offer "Install app" + enables offline */
+if("serviceWorker" in navigator){window.addEventListener("load",()=>{navigator.serviceWorker.register("sw.js").catch(()=>{});});}
+
+/* Android install prompt */
+let deferredPrompt=null;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredPrompt=e;$("installBtn").classList.remove("hide");});
+$("installBtn").onclick=async()=>{if(!deferredPrompt){alert("If no install button appears, use Chrome menu (⋮) → Install app / Add to Home screen.");return;}deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;$("installBtn").classList.add("hide");};
+window.addEventListener("appinstalled",()=>{$("installBtn").classList.add("hide");});
 
 loadAll();
 </script>
