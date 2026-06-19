@@ -163,6 +163,7 @@
   .icard .addr{flex:1;min-width:0;font-weight:700;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .icard .chev{color:var(--muted2);font-size:11px;flex:none}
   .icard .body{padding:0 14px 13px}
+  .icard .when{font-family:var(--mono);font-size:11px;color:var(--gold-d);font-weight:600;margin-bottom:8px}
   .icard .cfg{font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:11px;letter-spacing:.02em}
   .triple{display:flex;gap:7px}
   .triple .b{flex:1;background:#f1f3ec;border-radius:9px;padding:8px 9px}
@@ -278,7 +279,7 @@
     <div class="isum" id="inspSum"></div>
     <div class="isort"><span>SORT</span>
       <div class="sw"><select id="inspSort">
-        <option value="status">STATUS</option><option value="suburb">SUBURB</option><option value="cost">PRICE</option>
+        <option value="status">STATUS</option><option value="suburb">SUBURB</option><option value="when">INSPECTION DATE</option><option value="cost">PRICE</option>
         <option value="deposit">CASH GAP</option><option value="lvr">LVR</option><option value="fees">FEES</option>
       </select><span class="cz">▼</span></div>
       <div style="flex:1"></div>
@@ -289,6 +290,8 @@
       <div class="fh"><div class="t" id="inspFormTitle">Add property</div><button id="inspCancel">CLOSE</button></div>
       <div class="fg">
         <label class="s2"><span class="lab">SUBURB / ADDRESS</span><input id="i_suburb" placeholder="Carlton — 12 Faraday St"><span class="fmatch" id="i_match"></span></label>
+        <label class="s2"><span class="lab">INSPECTION DATE &amp; TIME</span><input id="i_when" type="datetime-local"></label>
+        <label class="s2"><span class="lab">PROPERTY TYPE</span><select id="i_type"><option value="Townhouse">Townhouse</option><option value="Apartment">Apartment</option><option value="House">House</option></select></label>
         <label><span class="lab">STATUS</span><select id="i_status"><option value="toinspect">To inspect</option><option value="inspected">Inspected</option><option value="shortlist">Shortlist</option><option value="passed">Passed</option></select></label>
         <label><span class="lab">AGE OF BUILD</span><input id="i_age" placeholder="2015"></label>
         <label><span class="lab">BEDROOMS</span><input id="i_bed" type="number" min="0" placeholder="2"></label>
@@ -328,6 +331,7 @@ const compact=n=>{if(!n)return "—";const a=Math.abs(n);if(a>=1e6)return "$"+(n
 const esc=s=>String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
 const uid=()=>"r"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const fmtWhen=v=>{if(!v)return "";const d=new Date(v);return isNaN(d)?esc(v):d.toLocaleString("en-AU",{weekday:"short",day:"numeric",month:"short",hour:"numeric",minute:"2-digit"});};
 
 const Store={
   async get(k){try{const v=localStorage.getItem(k);if(v!=null){storageMode="local";return v;}}catch(e){}
@@ -512,7 +516,7 @@ function renderInsp(){
     <div class="c"><div class="k">LARGEST GAP</div><div class="v">${n?compact(mg):"—"}</div></div>`;
   $("inspEmpty").classList.toggle("hide",n>0);
   const sk=$("inspSort").value;
-  const sorted=[...inspections].sort((a,b)=>{const f=k=>{const c=calc(k);switch(sk){case"status":return SO[k.status]??9;case"suburb":return(k.suburb||"").toLowerCase();case"cost":return +k.cost||0;case"deposit":return c.deposit;case"lvr":return c.lvr;case"fees":return c.fees;default:return 0;}};
+  const sorted=[...inspections].sort((a,b)=>{const f=k=>{const c=calc(k);switch(sk){case"status":return SO[k.status]??9;case"suburb":return(k.suburb||"").toLowerCase();case"when":return Date.parse(k.when)||Infinity;case"cost":return +k.cost||0;case"deposit":return c.deposit;case"lvr":return c.lvr;case"fees":return c.fees;default:return 0;}};
     const va=f(a),vb=f(b),dir=(sk==="cost"||sk==="deposit"||sk==="lvr"||sk==="fees")?-1:1;return va<vb?-dir:va>vb?dir:0;});
   $("inspList").innerHTML=sorted.map(card).join("");
   if(n){const tc=inspections.reduce((a,p)=>a+(+p.cost||0),0),tg=inspections.reduce((a,p)=>a+calc(p).deposit,0),tf=inspections.reduce((a,p)=>a+calc(p).fees,0);
@@ -522,8 +526,10 @@ function renderInsp(){
 function card(p){
   const c=calc(p),sc=SC[p.status]||SC.toinspect,m=matchSub(p),ex=!!expanded[p.id];
   let med="";if(m){const info=subMedian(m);med=`<div class="median">↳ ${info?("MEDIAN "+compact(info.median)+(info.delta!=null?` · ${info.delta>=0?'+':''}${info.delta.toFixed(0)}%`:"")):(esc(m.name).toUpperCase()+" · NO DATA YET")}</div>`;}
-  const cfg=`${p.bed||0}BD ${p.bath||0}BA ${p.park||0}CR`+(p.age?` · ${esc(p.age)}`:"")+(p.cage==="yes"?" · CAGE":"");
+  const cfg=(p.type?esc(p.type).toUpperCase()+" · ":"")+`${p.bed||0}BD ${p.bath||0}BA ${p.park||0}CR`+(p.age?` · ${esc(p.age)}`:"")+(p.cage==="yes"?" · CAGE":"");
   const more=ex?`<div class="more">
+    <div><div class="k">PROPERTY TYPE</div><div class="v">${p.type?esc(p.type):"—"}</div></div>
+    <div><div class="k">INSPECTION</div><div class="v">${p.when?esc(fmtWhen(p.when)):"—"}</div></div>
     <div><div class="k">EXPECTED LOAN</div><div class="v">${money(p.loan)}</div></div>
     <div><div class="k">FEES / QTR</div><div class="v">${c.fees?money(c.fees):"—"}</div></div>
     <div><div class="k">STORAGE CAGE</div><div class="v">${p.cage==="yes"?"Yes":"No"}</div></div>
@@ -535,6 +541,7 @@ function card(p){
       <span class="pill" style="background:${sc.bg};color:${sc.fg}">${sc.label}</span>
       <span class="addr">${p.suburb?esc(p.suburb):"—"}</span><span class="chev">${ex?"▲":"▼"}</span></div>
     <div class="body" style="border-left:4px solid ${sc.stripe};margin-left:-1px">
+      ${p.when?`<div class="when">🕑 ${esc(fmtWhen(p.when))}</div>`:""}
       <div class="cfg">${cfg}</div>
       <div class="triple">
         <div class="b"><div class="k">PRICE</div><div class="v">${compact(p.cost)}</div></div>
@@ -544,7 +551,7 @@ function card(p){
     </div></div>`;
 }
 function openInsp(p){editInsp=p?p.id:null;$("inspFormTitle").textContent=p?"Edit property":"Add property";
-  const g=(id,v)=>$(id).value=v??"";g("i_suburb",p?.suburb);$("i_status").value=p?.status||"toinspect";g("i_age",p?.age);$("i_cage").value=p?.cage||"no";
+  const g=(id,v)=>$(id).value=v??"";g("i_suburb",p?.suburb);g("i_when",p?.when);$("i_type").value=p?.type||"Townhouse";$("i_status").value=p?.status||"toinspect";g("i_age",p?.age);$("i_cage").value=p?.cage||"no";
   g("i_bed",p?.bed);g("i_bath",p?.bath);g("i_park",p?.park);g("i_cost",p?.cost);g("i_loan",p?.loan);g("i_strata",p?.strata);g("i_other",p?.other);g("i_comments",p?.comments);
   $("inspForm").classList.remove("hide");icalc();imatch();$("i_suburb").focus();$("inspForm").scrollIntoView({behavior:"smooth",block:"center"});}
 function icalc(){const cost=+$("i_cost").value||0,loan=+$("i_loan").value||0;
@@ -554,9 +561,9 @@ function imatch(){const v=$("i_suburb").value.toLowerCase();const m=suburbs.find
 ["i_cost","i_loan"].forEach(id=>$(id).addEventListener("input",icalc));$("i_suburb").addEventListener("input",imatch);
 $("inspSort").onchange=renderInsp;$("newInspBtn").onclick=()=>openInsp(null);
 $("inspCancel").onclick=()=>{$("inspForm").classList.add("hide");editInsp=null;};
-$("inspReset").onclick=()=>{["i_suburb","i_age","i_bed","i_bath","i_park","i_cost","i_loan","i_strata","i_other","i_comments"].forEach(id=>$(id).value="");icalc();imatch();};
+$("inspReset").onclick=()=>{["i_suburb","i_when","i_age","i_bed","i_bath","i_park","i_cost","i_loan","i_strata","i_other","i_comments"].forEach(id=>$(id).value="");$("i_type").value="Townhouse";icalc();imatch();};
 $("inspSave").onclick=async()=>{const d={suburb:$("i_suburb").value.trim()};if(!d.suburb){$("i_suburb").focus();$("i_suburb").style.borderColor="#b4452f";return;}
-  const rec={id:editInsp||(Date.now()+"-"+Math.random().toString(36).slice(2,6)),suburb:d.suburb,status:$("i_status").value,age:$("i_age").value.trim(),cage:$("i_cage").value,
+  const rec={id:editInsp||(Date.now()+"-"+Math.random().toString(36).slice(2,6)),suburb:d.suburb,type:$("i_type").value,when:$("i_when").value,status:$("i_status").value,age:$("i_age").value.trim(),cage:$("i_cage").value,
     bed:$("i_bed").value,bath:$("i_bath").value,park:$("i_park").value,cost:$("i_cost").value,loan:$("i_loan").value,strata:$("i_strata").value,other:$("i_other").value,comments:$("i_comments").value.trim()};
   if(editInsp){const i=inspections.findIndex(x=>x.id===editInsp);if(i>-1)inspections[i]=rec;}else inspections.unshift(rec);
   await saveInsp();renderInsp();$("inspForm").classList.add("hide");editInsp=null;};
@@ -571,8 +578,8 @@ function csv(v){v=String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"'
 function dl(name,text,type){const b=new Blob([text],{type:type||"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=name;a.click();URL.revokeObjectURL(a.href);}
 $("inspCsvBtn").onclick=()=>{if(!inspections.length){alert("No properties to export yet.");return;}
   const SL={toinspect:"To inspect",inspected:"Inspected",shortlist:"Shortlist",passed:"Passed"};
-  const lines=[["Status","Suburb/Address","Bed","Bath","Park","StorageCage","Age","Price","Loan","CashGap","LVR%","Strata/qtr","Other/qtr","Fees/qtr","Comments"].join(",")];
-  inspections.forEach(p=>{const c=calc(p);lines.push([SL[p.status]||"",p.suburb||"",p.bed||"",p.bath||"",p.park||"",p.cage==="yes"?"Yes":"No",p.age||"",p.cost||"",p.loan||"",Math.round(c.deposit),(+p.cost>0?c.lvr.toFixed(0):""),p.strata||"",p.other||"",c.fees,p.comments||""].map(csv).join(","));});
+  const lines=[["Status","Suburb/Address","Type","InspectionDateTime","Bed","Bath","Park","StorageCage","Age","Price","Loan","CashGap","LVR%","Strata/qtr","Other/qtr","Fees/qtr","Comments"].join(",")];
+  inspections.forEach(p=>{const c=calc(p);lines.push([SL[p.status]||"",p.suburb||"",p.type||"",p.when||"",p.bed||"",p.bath||"",p.park||"",p.cage==="yes"?"Yes":"No",p.age||"",p.cost||"",p.loan||"",Math.round(c.deposit),(+p.cost>0?c.lvr.toFixed(0):""),p.strata||"",p.other||"",c.fees,p.comments||""].map(csv).join(","));});
   dl("inspections.csv",lines.join("\n"));};
 $("subCsvBtn").onclick=()=>{const s=getSub();if(!s){alert("No suburb to export.");return;}
   const lines=[["Date","ForSale","Sold","AvgPrice","MedianPrice","DaysOnMarket"].join(",")];
